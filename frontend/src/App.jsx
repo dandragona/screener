@@ -43,15 +43,36 @@ function App() {
   // Default tickers to start with
   const DEFAULT_INPUT = "AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA,META,AMD,INTC,PYPL"
 
+  const [lastUpdated, setLastUpdated] = useState(null)
+
   useEffect(() => {
     handleScreen()
   }, [])
 
-  const handleScreen = async () => {
+  const handleScreen = async (forceRefresh = false) => {
     setLoading(true)
     setError(null)
-    setResults([])
+
     try {
+      // Check cache unless forcing refresh
+      if (!forceRefresh) {
+        const cached = localStorage.getItem('screenerResults')
+        if (cached) {
+          const { data, timestamp } = JSON.parse(cached)
+          const now = Date.now()
+          // 24 hours in milliseconds
+          const ONE_DAY = 24 * 60 * 60 * 1000
+
+          if (now - timestamp < ONE_DAY) {
+            setResults(data)
+            setLastUpdated(timestamp)
+            setLoading(false)
+            return
+          }
+        }
+      }
+
+      setResults([])
       // Use default input if tickers state is empty
       const tickerList = tickers.length > 0 ? tickers : DEFAULT_INPUT.split(',')
       const query = tickerList.map(t => `tickers=${t.trim()}`).join('&')
@@ -63,6 +84,14 @@ function App() {
 
       const data = await response.json()
       setResults(data)
+
+      // Update cache
+      const now = Date.now()
+      localStorage.setItem('screenerResults', JSON.stringify({
+        data,
+        timestamp: now
+      }))
+      setLastUpdated(now)
     } catch (err) {
       console.error(err)
       setError(err.message)
@@ -85,12 +114,12 @@ function App() {
     <div className="container">
       <header className="header">
         <div className="header-content">
-          <div className="logo">AVG LEAPs</div>
+          <div className="logo">Arc Screener</div>
         </div>
       </header>
 
       <section className="hero-section">
-        <h1 className="hero-title">LEAP Ahead</h1>
+        <h1 className="hero-title">Growth Curves for the DIY Investor</h1>
         <p className="hero-subtitle">Premium long-term equity monitoring and AI-powered analysis for the modern investor.</p>
 
         <div className="stats-grid" style={{ maxWidth: '1000px', margin: '0 auto' }}>
@@ -112,6 +141,33 @@ function App() {
             </div>
             <div className="stat-label">Avg P/FCF</div>
           </div>
+        </div>
+
+        <div style={{ textAlign: 'center', marginTop: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+          <button
+            onClick={() => handleScreen(true)}
+            disabled={loading}
+            style={{
+              padding: '10px 24px',
+              fontSize: '1rem',
+              borderRadius: '8px',
+              border: 'none',
+              background: 'var(--accent-gradient)',
+              color: 'white',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.7 : 1,
+              fontWeight: 600,
+              boxShadow: '0 4px 12px rgba(100, 108, 255, 0.3)'
+            }}
+          >
+            {loading ? 'Refreshing...' : 'Refresh Data'}
+          </button>
+
+          {lastUpdated && (
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', opacity: 0.8 }}>
+              Last updated: {new Date(lastUpdated).toLocaleString()}
+            </div>
+          )}
         </div>
       </section>
 
@@ -239,7 +295,7 @@ function App() {
 
         {!loading && results.length === 0 && !error && (
           <div className="loading" style={{ padding: '8rem 0' }}>
-            <div className="logo" style={{ marginBottom: '1.5rem', opacity: 0.5 }}>AVG</div>
+            <div className="logo" style={{ marginBottom: '1.5rem', opacity: 0.5 }}>Arc Screener</div>
             Fetching latest market intelligence...
           </div>
         )}

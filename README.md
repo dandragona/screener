@@ -83,3 +83,4 @@ The frontend is a React application that provides the user interface.
 
 - The backend uses `yfinance` to fetch stock data.
 - The AI descriptions are generated using Google's Gemini Pro via the `google-generativeai` library.
+- **Version Control**: Use `jujutsu` (jj) instead of raw Git for version control operations in this repository.

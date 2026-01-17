@@ -30,10 +30,3 @@ lerna-debug.log*
 *.swo
 
 # Project specific
-backend/ai_service.py
-backend/config.py
-backend/tests/test_ai_service.py
-backend/tests/test_data_provider.py
-backend/verify_targets.py
-frontend/src/App.test.jsx
-frontend/src/setupTests.js
