@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+yfinance
+scipy
+pandas
+numpy
+pytest
+httpx
+google-generativeai
+python-dotenv
