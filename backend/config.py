@@ -16,3 +16,13 @@ MIN_ROE = 0.15
 API_TITLE = "LEAPs Screener API"
 API_HOST = "0.0.0.0"
 API_PORT = 8000
+
+# Polygon.io Configuration
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
+if not POLYGON_API_KEY:
+    raise ValueError("POLYGON_API_KEY not found in environment variables. Please set it in a .env file.")

@@ -23,7 +23,8 @@ app.add_middleware(
 )
 
 # Initialize dependencies
-data_provider = YFinanceProvider()
+from data_provider import HybridProvider
+data_provider = HybridProvider()
 screener = Screener(data_provider)
 ai_generator = AIDescriptionGenerator()
 
@@ -35,9 +36,15 @@ def health_check():
 def screen_stocks(tickers: Optional[List[str]] = Query(None)):
     """
     Screen a list of stocks based on Value & Quality criteria.
-    If no tickers provided, uses a default tech/large-cap list.
+    If no tickers provided, uses the Russell 2000 list.
     """
-    target_tickers = tickers if tickers else DEFAULT_TICKERS
+    if tickers:
+        target_tickers = tickers
+    else:
+        # Load S&P 1500
+        from symbol_loader import get_sp1500_tickers
+        target_tickers = get_sp1500_tickers()
+    
     results = screener.screen_stocks(target_tickers)
     return results
 

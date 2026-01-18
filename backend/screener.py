@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from data_provider import DataProvider
+from data_provider import DataProvider, HybridProvider
 from options_lib import IVEstimator
 from config import MIN_MARKET_CAP, MAX_P_FCF, MAX_PEG, MIN_ROE
 
@@ -158,13 +158,15 @@ class Screener:
 
     def screen_stocks(self, tickers: List[str]) -> List[Dict[str, Any]]:
         results = []
-        for ticker in tickers:
+        import concurrent.futures
+
+        def process_ticker(ticker: str) -> Optional[Dict[str, Any]]:
             try:
                 details = self.data_provider.get_ticker_details(ticker)
                 
                 # --- Filter 1: Market Cap ---
                 if details.get("market_cap", 0) < MIN_MARKET_CAP:
-                    continue
+                    return None
 
                 # --- Fetch Advanced Metrics (Only for filtered stocks) ---
                 try:
@@ -176,12 +178,25 @@ class Screener:
 
                 # --- Calculate Metrics & Score ---
                 details = self._calculate_metrics(details)
-                
-                results.append(details)
+                return details
 
             except Exception as e:
                 print(f"Error screening {ticker}: {e}")
-                continue
+                return None
+
+        # Use efficient parallel processing
+        # Use efficient parallel processing
+        # Adjust max_workers based on expected load. heavy rate limiting observed with 20.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_ticker = {executor.submit(process_ticker, ticker): ticker for ticker in tickers}
+            for future in concurrent.futures.as_completed(future_to_ticker):
+                ticker = future_to_ticker[future]
+                try:
+                    data = future.result()
+                    if data:
+                        results.append(data)
+                except Exception as exc:
+                    print(f"Generated an exception for {ticker}: {exc}")
                 
         # Sort by score
         return sorted(results, key=lambda x: x["calculated_metrics"]["score"], reverse=True)
