@@ -8,3 +8,4 @@ pytest
 httpx
 google-generativeai
 python-dotenv
+lxml

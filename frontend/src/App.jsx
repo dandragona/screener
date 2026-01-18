@@ -40,8 +40,8 @@ function App() {
     setAnalysisResult(null)
   }
 
-  // Default tickers to start with
-  const DEFAULT_INPUT = "AAPL,MSFT,GOOGL,AMZN,TSLA,NVDA,META,AMD,INTC,PYPL"
+  // Default tickers to start with (Empty to trigger backend default/Russell 2000)
+  const DEFAULT_INPUT = ""
 
   const [lastUpdated, setLastUpdated] = useState(null)
 
@@ -74,8 +74,8 @@ function App() {
 
       setResults([])
       // Use default input if tickers state is empty
-      const tickerList = tickers.length > 0 ? tickers : DEFAULT_INPUT.split(',')
-      const query = tickerList.map(t => `tickers=${t.trim()}`).join('&')
+      const tickerList = tickers.length > 0 ? tickers : (DEFAULT_INPUT ? DEFAULT_INPUT.split(',') : [])
+      const query = tickerList.length > 0 ? tickerList.map(t => `tickers=${t.trim()}`).join('&') : ''
 
       const response = await fetch(`http://localhost:8000/screen?${query}`)
       if (!response.ok) {
@@ -189,6 +189,7 @@ function App() {
                     <th>Debt/Eq</th>
                     <th>HV</th>
                     <th>IV (S)</th>
+                    <th>IV Rank</th>
                     <th>IV Ratio</th>
                     <th>Insider</th>
                     <th>Action</th>
@@ -234,6 +235,7 @@ function App() {
                         <td>{r.debt_to_equity?.toFixed(2) || 'N/A'}</td>
                         <td className="metric-neutral">{formatPercent(r.historical_volatility)}</td>
                         <td className="metric-neutral">{formatPercent(r.iv_short)}</td>
+                        <td>{r.calculated_metrics?.iv_rank ? (r.calculated_metrics.iv_rank * 100).toFixed(0) + '%' : 'N/A'}</td>
                         <td>{r.iv_term_structure_ratio?.toFixed(2) || 'N/A'}</td>
                         <td className={getInsiderClass(r.insider_net_shares)}>
                           {formatInsider(r.insider_net_shares)}
