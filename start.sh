@@ -15,6 +15,15 @@ if [ -d "venv" ]; then
     source venv/bin/activate
 fi
 
+# Check for flags
+if [[ "$*" == *"--enable-iv"* ]]; then
+    echo "Enabling IV Rank calculation (slow mode)..."
+    export ENABLE_IV_RANK=true
+else
+    echo "Running in fast mode (IV Rank disabled). Use --enable-iv to enable."
+    export ENABLE_IV_RANK=false
+fi
+
 # Start Backend
 echo "Starting Backend..."
 cd backend

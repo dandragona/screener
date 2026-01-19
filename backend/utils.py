@@ -29,7 +29,7 @@ def retry_with_backoff(retries=3, backoff_in_seconds=1, maximize_jitter=False):
                         logger.error(f"Function {func.__name__} failed after {retries} retries. Final error: {e}")
                         raise
                     
-                    sleep = (backoff_in_seconds * 2 ** x)
+                    sleep = (backoff_in_seconds * 2 ** min(x, 6))
                     
                     if maximize_jitter:
                          # Full jitter: random between 0 and sleep

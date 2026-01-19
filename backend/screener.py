@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Optional
 from data_provider import DataProvider, HybridProvider
 from options_lib import IVEstimator
-from config import MIN_MARKET_CAP, MAX_P_FCF, MAX_PEG, MIN_ROE
+from config import MIN_MARKET_CAP, MAX_P_FCF, MAX_PEG, MIN_ROE, ENABLE_IV_RANK
 
 class Screener:
     def __init__(self, data_provider: DataProvider):
@@ -167,7 +167,7 @@ class Screener:
 
             # --- Fetch Advanced Metrics (Only for filtered stocks) ---
             try:
-                advanced = self.data_provider.get_advanced_metrics(ticker)
+                advanced = self.data_provider.get_advanced_metrics(ticker, include_iv_rank=ENABLE_IV_RANK)
                 if advanced:
                     details.update(advanced)
             except Exception as adv_err:

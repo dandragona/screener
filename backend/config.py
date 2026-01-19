@@ -26,3 +26,6 @@ load_dotenv()
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
 if not POLYGON_API_KEY:
     raise ValueError("POLYGON_API_KEY not found in environment variables. Please set it in a .env file.")
+
+# Feature Flags
+ENABLE_IV_RANK = os.getenv("ENABLE_IV_RANK", "False").lower() == "true"
