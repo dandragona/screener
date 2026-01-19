@@ -184,40 +184,7 @@ class Screener:
             print(f"Error screening {ticker}: {e}")
             return None
 
-    def screen_stocks(self, tickers: List[str]) -> List[Dict[str, Any]]:
-        results = []
-        import concurrent.futures
 
-        # Use efficient parallel processing
-        # Adjust max_workers based on expected load. heavy rate limiting observed with 20.
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            future_to_ticker = {executor.submit(self.process_ticker, ticker): ticker for ticker in tickers}
-            for future in concurrent.futures.as_completed(future_to_ticker):
-                ticker = future_to_ticker[future]
-                try:
-                    data = future.result()
-                    if data:
-                        results.append(data)
-                except Exception as exc:
-                    print(f"Generated an exception for {ticker}: {exc}")
-                
-        # Sort by score
-        return sorted(results, key=lambda x: x["calculated_metrics"]["score"], reverse=True)
-
-    def screen_stocks_generator(self, tickers: List[str]):
-        """Yield results as they complete."""
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            future_to_ticker = {executor.submit(self.process_ticker, ticker): ticker for ticker in tickers}
-            for future in concurrent.futures.as_completed(future_to_ticker):
-                ticker = future_to_ticker[future]
-                try:
-                    data = future.result()
-                    if data:
-                        yield data
-                except Exception as exc:
-                    print(f"Generated an exception for {ticker}: {exc}")
 
     def get_leaps_opportunities(self, ticker: str):
         # Placeholder for options chain processing
