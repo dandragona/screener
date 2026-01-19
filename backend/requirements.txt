@@ -9,3 +9,6 @@ httpx
 google-generativeai
 python-dotenv
 lxml
+sqlalchemy
+psycopg2-binary
+alembic

@@ -1,86 +1,90 @@
 # LEAPs Screener Tool
 
-A web-based tool for screening stocks and finding LEAPs (Long-term Equity AnticiPation Securities) opportunities, featuring AI-powered company analysis.
+A high-performance "Hybrid" stock screener.
+- **Worker**: Runs daily on a home PC/Server to crunch numbers (Black-Scholes, Scoring).
+- **Database**: Stores pre-calculated results (SQLite locally, PostgreSQL in prod).
+- **Web App**: Fast, read-only interface served by FastAPI + React.
 
 ## Project Structure
 
-- `backend/`: FastAPI Python application
+- `backend/`: FastAPI application + Ingestion Engine (`ingest.py`)
 - `frontend/`: React + Vite application
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.10+
 - Node.js & npm
 - A Google Cloud API Key for Gemini (AI descriptions)
 
 ## Getting Started
 
-### 1. Backend Setup
+### 1. Backend & Database Setup
 
-The backend handles data fetching, calculation, and the AI integration.
+1.  Navigate to the backend directory:
+    ```bash
+    cd backend
+    ```
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
+2.  Create and activate a virtual environment:
+    ```bash
+    python3 -m venv ../venv
+    source ../venv/bin/activate
+    ```
 
-2. Create and activate a virtual environment (optional but recommended):
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+3.  Install Python dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-3. Install Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+4.  **Database Setup**:
+    Initialize the local SQLite database:
+    ```bash
+    alembic upgrade head
+    ```
 
-4. Set up environment variables:
-   Create a `.env` file in the `backend/` directory:
-   ```bash
-   touch .env
-   ```
-   Add your Gemini API Key to the `.env` file:
-   ```
-   GEMINI_API_KEY=your_api_key_here
-   ```
+5.  **Ingest Data**:
+    Running the screener logic takes time. Run the ingestion script to populate your database:
+    ```bash
+    python ingest.py
+    ```
+    *(Note: This might take 10-15 minutes for the full S&P 1500)*
 
-5. Start the server:
-   ```bash
-   python main.py
-   # OR
-   uvicorn main:app --reload
-   ```
-   The backend will be running at `http://localhost:8000`. API docs are available at `http://localhost:8000/docs`.
+6.  Set up environment variables:
+    Create `backend/.env`:
+    ```ini
+    GEMINI_API_KEY=your_api_key_here
+    # DATABASE_URL=sqlite:///./screen.db  (Default, no need to change for local)
+    ```
+
+7.  Start the API server:
+    ```bash
+    uvicorn main:app --reload
+    ```
+    The backend will be running at `http://localhost:8000`.
 
 ### 2. Frontend Setup
 
-The frontend is a React application that provides the user interface.
+1.  Navigate to the frontend directory:
+    ```bash
+    cd frontend
+    ```
 
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
+2.  Install & Start:
+    ```bash
+    npm install
+    npm run dev
+    ```
+    The app will be running at `http://localhost:5173`.
 
-2. Install Node dependencies:
-   ```bash
-   npm install
-   ```
+## Deployment (Production)
 
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-   The frontend will be running at `http://localhost:5173` (typically).
+This app is designed to run in a Hybrid mode:
+1.  **Database**: Supabase / Neon (Cloud Postgres).
+2.  **Worker**: Your Home PC running `ingest.py` daily.
+3.  **Web App**: Cloud Hosting (Render/Railway).
 
-## Usage
-
-1. Open your browser and go to the frontend URL (e.g., `http://localhost:5173`).
-2. The dashboard will load with default stock data.
-3. Use the interface to screen for stocks and view details, including AI-generated descriptions.
+See [DEPLOY.md](DEPLOY.md) for full instructions.
 
 ## Notes
 
-- The backend uses `yfinance` to fetch stock data.
-- The AI descriptions are generated using Google's Gemini Pro via the `google-generativeai` library.
-- **Version Control**: Use `jujutsu` (jj) instead of raw Git for version control operations in this repository.
+- **Version Control**: Use `jujutsu` (jj).
