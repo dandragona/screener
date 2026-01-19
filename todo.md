@@ -20,3 +20,4 @@
 13. Add an about page, where I discuss who I am, my investment philosophy, and why I built this tool.
     * Explains pricing using data, I'm only trying to be paid for value I can provide.
 14. Add a page that explains the metrics I use, why I use them, and how to interpret them.
+15. Automate "Stock of the Day" feature for marketing purposes.

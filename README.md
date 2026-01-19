@@ -18,63 +18,29 @@ A high-performance "Hybrid" stock screener.
 
 ## Getting Started
 
-### 1. Backend & Database Setup
+### 1. Environment Setup
 
-1.  Navigate to the backend directory:
-    ```bash
-    cd backend
-    ```
+Create `backend/.env`:
+```ini
+GEMINI_API_KEY=your_api_key_here
+# DATABASE_URL=sqlite:///./screen.db  (Default, no need to change for local)
+```
 
-2.  Create and activate a virtual environment:
-    ```bash
-    python3 -m venv ../venv
-    source ../venv/bin/activate
-    ```
+### 2. Ingest Data
 
-3.  Install Python dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
+Run the ingestion script to populate your database (takes ~10-15m for full S&P 1500):
+```bash
+./ingestion.sh
+```
 
-4.  **Database Setup**:
-    Initialize the local SQLite database:
-    ```bash
-    alembic upgrade head
-    ```
+### 3. Start Servers
 
-5.  **Ingest Data**:
-    Running the screener logic takes time. Run the ingestion script to populate your database:
-    ```bash
-    python ingest.py
-    ```
-    *(Note: This might take 10-15 minutes for the full S&P 1500)*
-
-6.  Set up environment variables:
-    Create `backend/.env`:
-    ```ini
-    GEMINI_API_KEY=your_api_key_here
-    # DATABASE_URL=sqlite:///./screen.db  (Default, no need to change for local)
-    ```
-
-7.  Start the API server:
-    ```bash
-    uvicorn main:app --reload
-    ```
-    The backend will be running at `http://localhost:8000`.
-
-### 2. Frontend Setup
-
-1.  Navigate to the frontend directory:
-    ```bash
-    cd frontend
-    ```
-
-2.  Install & Start:
-    ```bash
-    npm install
-    npm run dev
-    ```
-    The app will be running at `http://localhost:5173`.
+Start both the backend (API) and frontend (UI):
+```bash
+./start_server.sh
+```
+- Backend: `http://localhost:8000`
+- Frontend: `http://localhost:5173`
 
 ## Deployment (Production)
 

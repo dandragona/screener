@@ -156,7 +156,7 @@ class Screener:
         
         return details
 
-    def process_ticker(self, ticker: str) -> Optional[Dict[str, Any]]:
+    def process_ticker(self, ticker: str, fetch_mode: str = "full") -> Optional[Dict[str, Any]]:
         """Process a single ticker. Helper for threading/ingestion."""
         try:
             details = self.data_provider.get_ticker_details(ticker)
@@ -170,7 +170,7 @@ class Screener:
 
             # --- Fetch Advanced Metrics (Only for filtered stocks) ---
             try:
-                advanced = self.data_provider.get_advanced_metrics(ticker, include_iv_rank=ENABLE_IV_RANK)
+                advanced = self.data_provider.get_advanced_metrics(ticker, include_iv_rank=ENABLE_IV_RANK, fetch_mode=fetch_mode)
                 if advanced:
                     details.update(advanced)
             except Exception as adv_err:

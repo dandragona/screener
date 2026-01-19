@@ -78,8 +78,9 @@ class IVEstimator:
                 # Math domain error or overflow
                 return None
             
-            if vega == 0:
-                return None # Avoid division by zero
+            if vega < 1.0e-8:
+                return None # Avoid division by zero or overflow
+                
                 
             sigma = sigma + diff / vega
             

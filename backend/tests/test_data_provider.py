@@ -126,3 +126,33 @@ class TestPolygonProvider:
         # Check second call had expired=false
         call2_kwargs = mock_get_json.call_args_list[1][0][1] # params
         assert call2_kwargs.get("expired") == "false"
+
+    @patch("data_provider.PolygonProvider._get_all_contracts")
+    def test_get_iv_history_optimization(self, mock_get_all_contracts):
+        # verify that get_iv_history calculates correct bounds and passes them to _get_all_contracts
+        import pandas as pd
+        provider = PolygonProvider()
+        symbol = "OPT"
+        
+        # 1. Create Mock History
+        # Low = 100, High = 200
+        data = {
+            "Close": [100.0, 150.0, 200.0]
+        }
+        df = pd.DataFrame(data, index=["2023-01-01", "2023-01-02", "2023-01-03"])
+        
+        # Mock _get_all_contracts to return empty so we don't crash later logic
+        mock_get_all_contracts.return_value = []
+        
+        # 2. Call method
+        provider.get_iv_history(symbol, df)
+        
+        # 3. Verify arguments
+        # Expected Min = 100 * 0.5 = 50.0
+        # Expected Max = 200 * 1.5 = 300.0
+        
+        mock_get_all_contracts.assert_called_once()
+        _, kwargs = mock_get_all_contracts.call_args
+        
+        assert kwargs["min_strike"] == 50.0
+        assert kwargs["max_strike"] == 300.0

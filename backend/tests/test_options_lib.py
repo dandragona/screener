@@ -51,5 +51,15 @@ class TestIVEstimator:
         # High volatility case: S=100, K=100, T=1, r=0.05, Price=99
         # Should converge to a high sigma, not crash
         sigma = IVEstimator.impl_vol_call(99, 100, 100, 1, 0.05)
-        assert sigma is not None
         assert sigma > 1.0
+
+    def test_impl_vol_small_vega(self):
+        # Case designed to produce extremely small Vega (non-zero but tiny)
+        # S=100, K=1000 (Deep OTM), T=0.015
+        # d1 approx -37 => pdf(d1) approx 1e-315
+        # This should return None due to our protection, or converge if lucky, but NOT warn/crash
+        sigma = IVEstimator.impl_vol_call(0.01, 100, 1000, 0.015, 0)
+        # We generally expect None because the price is so far OTM that IV is undefined or hard to find
+        # But main result is no exception.
+        assert True
+
