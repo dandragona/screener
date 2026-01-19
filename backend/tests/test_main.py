@@ -9,15 +9,24 @@ def test_health_check():
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
-@patch("main.screener.screen_stocks")
-def test_screen_stocks_endpoint(mock_screen):
-    # Mock return value
-    mock_screen.return_value = [{"symbol": "TEST", "score": 3}]
+@patch("main.screener.screen_stocks_generator")
+def test_screen_stocks_endpoint(mock_screen_gen):
+    # Mock return value (generator)
+    def mock_gen(tickers):
+        yield {"symbol": "TEST", "score": 3}
+    mock_screen_gen.side_effect = mock_gen
     
     response = client.get("/screen?tickers=TEST")
     assert response.status_code == 200
-    assert response.json() == [{"symbol": "TEST", "score": 3}]
-    mock_screen.assert_called_with(["TEST"])
+    
+    # Parse NDJSON
+    import json
+    lines = response.text.strip().split('\n')
+    assert len(lines) == 1
+    data = json.loads(lines[0])
+    assert data == {"symbol": "TEST", "score": 3}
+    
+    mock_screen_gen.assert_called_with(["TEST"])
 
 @patch("main.data_provider.get_ticker_details")
 def test_get_ticker_details(mock_get_details):

@@ -20,11 +20,11 @@ class DataProvider(ABC):
         pass
 
     @abstractmethod
-    def get_advanced_metrics(self, symbol: str) -> Dict[str, Any]:
+    def get_advanced_metrics(self, symbol: str, include_iv_rank: bool = True) -> Dict[str, Any]:
         pass
 
 class YFinanceProvider(DataProvider):
-    @retry_with_backoff(retries=3, backoff_in_seconds=2)
+    @retry_with_backoff(retries=10, backoff_in_seconds=2)
     def get_ticker_details(self, symbol: str) -> Dict[str, Any]:
         ticker = yf.Ticker(symbol)
         info = ticker.info
@@ -51,7 +51,7 @@ class YFinanceProvider(DataProvider):
             "total_revenue": info.get("totalRevenue"),
         }
 
-    @retry_with_backoff(retries=3, backoff_in_seconds=2)
+    @retry_with_backoff(retries=10, backoff_in_seconds=2)
     def get_options_chain(self, symbol: str) -> Dict[str, Any]:
         ticker = yf.Ticker(symbol)
         expirations = ticker.options
@@ -60,8 +60,8 @@ class YFinanceProvider(DataProvider):
             "expirations": expirations
         }
 
-    @retry_with_backoff(retries=3, backoff_in_seconds=2)
-    def get_advanced_metrics(self, symbol: str) -> Dict[str, Any]:
+    @retry_with_backoff(retries=10, backoff_in_seconds=2)
+    def get_advanced_metrics(self, symbol: str, include_iv_rank: bool = True) -> Dict[str, Any]:
         ticker = yf.Ticker(symbol)
         metrics = {
             "insider_net_shares": None,
@@ -138,7 +138,7 @@ class PolygonProvider(DataProvider):
     def __init__(self):
         self.api_key = POLYGON_API_KEY
 
-    @retry_with_backoff(retries=4, backoff_in_seconds=1, maximize_jitter=True)
+    @retry_with_backoff(retries=10, backoff_in_seconds=1, maximize_jitter=True)
     def _get_json(self, endpoint: str, params: Dict[str, Any] = {}) -> Dict[str, Any]:
         params["apiKey"] = self.api_key
         url = f"{self.BASE_URL}{endpoint}"
@@ -212,7 +212,7 @@ class PolygonProvider(DataProvider):
     def get_options_chain(self, symbol: str) -> Dict[str, Any]:
          return {"symbol": symbol, "expirations": []}
 
-    def get_advanced_metrics(self, symbol: str) -> Dict[str, Any]:
+    def get_advanced_metrics(self, symbol: str, include_iv_rank: bool = True) -> Dict[str, Any]:
         return {}
         
     def _calculate_historic_iv30(self, symbol: str, stock_history: Any) -> Dict[str, Any]:
@@ -320,9 +320,12 @@ class HybridProvider(DataProvider):
     def get_options_chain(self, symbol: str) -> Dict[str, Any]:
         return self.yf.get_options_chain(symbol)
 
-    def get_advanced_metrics(self, symbol: str) -> Dict[str, Any]:
-        yf_metrics = self.yf.get_advanced_metrics(symbol)
+    def get_advanced_metrics(self, symbol: str, include_iv_rank: bool = True) -> Dict[str, Any]:
+        yf_metrics = self.yf.get_advanced_metrics(symbol, include_iv_rank=include_iv_rank)
         try:
+            if not include_iv_rank:
+                return yf_metrics
+
             stock_details = self.get_ticker_details(symbol)
             if not stock_details: return yf_metrics
             
