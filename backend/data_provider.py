@@ -1,11 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
 from typing import Dict, Any, Optional, List
 import yfinance as yf
 import requests
 from datetime import datetime, timedelta
 from config import POLYGON_API_KEY
-from options_lib import IVEstimator
+from options_lib import IVEstimator, OptionPricingModel
+from utils import retry_with_backoff
+import concurrent.futures
+import pandas as pd
+import numpy as np
 
 class DataProvider(ABC):
     @abstractmethod
@@ -21,6 +24,7 @@ class DataProvider(ABC):
         pass
 
 class YFinanceProvider(DataProvider):
+    @retry_with_backoff(retries=3, backoff_in_seconds=2)
     def get_ticker_details(self, symbol: str) -> Dict[str, Any]:
         ticker = yf.Ticker(symbol)
         info = ticker.info
@@ -34,11 +38,9 @@ class YFinanceProvider(DataProvider):
             "fifty_day_average": info.get("fiftyDayAverage"),
             "two_hundred_day_average": info.get("twoHundredDayAverage"),
             "beta": info.get("beta"),
-            # Price Targets
             "target_mean": info.get("targetMeanPrice"),
             "target_high": info.get("targetHighPrice"),
             "target_low": info.get("targetLowPrice"),
-            # Value/Quality metrics
             "trailing_eps": info.get("trailingEps"),
             "forward_eps": info.get("forwardEps"),
             "debt_to_equity": info.get("debtToEquity"),
@@ -49,6 +51,7 @@ class YFinanceProvider(DataProvider):
             "total_revenue": info.get("totalRevenue"),
         }
 
+    @retry_with_backoff(retries=3, backoff_in_seconds=2)
     def get_options_chain(self, symbol: str) -> Dict[str, Any]:
         ticker = yf.Ticker(symbol)
         expirations = ticker.options
@@ -57,16 +60,8 @@ class YFinanceProvider(DataProvider):
             "expirations": expirations
         }
 
+    @retry_with_backoff(retries=3, backoff_in_seconds=2)
     def get_advanced_metrics(self, symbol: str) -> Dict[str, Any]:
-        """
-        Fetch advanced metrics for LEAPs screening:
-        1. Insider Buying (Net Shares)
-        2. Historical Volatility (1 Year)
-        3. IV Term Structure (Short vs Long term IV)
-        """
-        import numpy as np
-        import pandas as pd
-        
         ticker = yf.Ticker(symbol)
         metrics = {
             "insider_net_shares": None,
@@ -78,25 +73,10 @@ class YFinanceProvider(DataProvider):
 
         # 1. Insider Buying
         try:
-            # Try 6 month window of purchases/sales
-            # YF often returns a dataframe 'insider_purchases' or 'insider_transactions'
-            # We'll try to calculate net manually if structure allows, or safe default
-            # Actually YF 'insider_purchases' gives a summary which is easier
             purchases = ticker.insider_purchases
             if purchases is not None and not purchases.empty:
-                 # Look for 'Net Shares Purchased (Sold)' row
-                 # Typical format has "Insider Purchases Last 6m" as index or column
-                 # Based on spike output:
-                 # 0                      Purchases
-                 # 1                          Sales
-                 # 2    Net Shares Purchased (Sold)
-                 # We need to find the row with "Net Shares Purchased (Sold)"
-                 
-                 # It seems purchases is a dataframe where the first column acts like a label
-                 # Let's assume standard YF dataframe structure from spike
                  target_row = purchases[purchases.iloc[:, 0] == "Net Shares Purchased (Sold)"]
                  if not target_row.empty:
-                     # Access the 'Shares' column (col 1)
                      metrics["insider_net_shares"] = float(target_row.iloc[0, 1])
         except Exception as e:
             print(f"Error fetching insider data for {symbol}: {e}")
@@ -115,19 +95,10 @@ class YFinanceProvider(DataProvider):
         try:
             expirations = ticker.options
             if expirations and len(expirations) > 1:
-                # Short term: ~30 days (closest to month 1)
-                # Long term: ~365 days (closest to year 1)
-                
-                # Simple approximation: index 1 (approx 1-4 weeks) or search dates
-                # Let's try to find an expiration ~30 days out and ~365 days out
-                from datetime import datetime
                 today = datetime.now()
-                
-                # Convert exp strings to dates
                 exp_dates = []
                 for e in expirations:
                      try:
-                         # YF format YYYY-MM-DD
                          d = datetime.strptime(e, "%Y-%m-%d")
                          days = (d - today).days
                          exp_dates.append((days, e))
@@ -135,31 +106,16 @@ class YFinanceProvider(DataProvider):
                          continue
                 
                 if exp_dates:
-                    # Find closest to 30
                     short_term = min(exp_dates, key=lambda x: abs(x[0] - 30))
-                    # Find closest to 365 (must be at least 180 to be useful)
                     long_term = min(exp_dates, key=lambda x: abs(x[0] - 365))
                     
-                    if long_term[0] > 180: # Ensure it's actually long term
-                        # Fetch chains
-                        # Note: option_chain() fetches both calls and puts. 
-                        # We use ATM calls for IV proxy.
-                        
+                    if long_term[0] > 180: 
                         def get_atm_iv(exp_date_str):
                             opts = ticker.option_chain(exp_date_str)
                             calls = opts.calls
-                            
-                            # Find ATM strike
-                            # Need current price. If we don't have it handy, use history last close
-                            # But we usually have it. Let's assume we can get it from hist or info
-                            # Using hist last close is faster than refetching info
                             curr = hist['Close'].iloc[-1]
-                            
-                            # Find strike closest to curr
-                            # Filter for valid IVs
                             calls = calls[calls['impliedVolatility'] > 0]
                             if calls.empty: return None
-                            
                             closest_row = calls.iloc[(calls['strike'] - curr).abs().argsort()[:1]]
                             if not closest_row.empty:
                                 return closest_row.iloc[0]['impliedVolatility']
@@ -174,8 +130,6 @@ class YFinanceProvider(DataProvider):
         except Exception as e:
             print(f"Error fetching options IV for {symbol}: {e}")
 
-
-
         return metrics
 
 class PolygonProvider(DataProvider):
@@ -184,6 +138,7 @@ class PolygonProvider(DataProvider):
     def __init__(self):
         self.api_key = POLYGON_API_KEY
 
+    @retry_with_backoff(retries=4, backoff_in_seconds=1, maximize_jitter=True)
     def _get_json(self, endpoint: str, params: Dict[str, Any] = {}) -> Dict[str, Any]:
         params["apiKey"] = self.api_key
         url = f"{self.BASE_URL}{endpoint}"
@@ -194,154 +149,165 @@ class PolygonProvider(DataProvider):
         except Exception as e:
             print(f"Polygon API Error {url}: {e}")
             return {}
+            
+    def _get_all_contracts(self, symbol: str) -> List[Dict[str, Any]]:
+        contracts = []
+        start_date = (datetime.now() - timedelta(days=400)).strftime("%Y-%m-%d")
+        params = {
+            "underlying_ticker": symbol,
+            "expiration_date.gte": start_date,
+            "expired": "true", # Explicitly request expired contracts
+            "limit": 1000,
+            "sort": "expiration_date",
+            "order": "asc"
+        }
+        url = "/v3/reference/options/contracts"
+        
+        # We need to fetch both expired AND active. 
+        # Polygon API might filter if expired=true is distinct from "all" or active.
+        # Actually, "expired" param: "Query for expired contracts. Default is false."
+        # If we set true, do we get ONLY expired?
+        # Docs say: "If true, search expired options. If false, search active options."
+        # So we likely need TWO loops or two requests? Or is there a way to get both?
+        # Usually it's exclusive. Let's fetch expired first, then active.
+        
+        # 1. Fetch Expired
+        self._fetch_contracts_loop(url, params.copy(), contracts, symbol)
+        
+        # 2. Fetch Active (remove expired param or set to false)
+        active_params = params.copy()
+        active_params["expired"] = "false"
+        self._fetch_contracts_loop(url, active_params, contracts, symbol)
+            
+        return contracts
+
+    def _fetch_contracts_loop(self, url, params, contracts, symbol):
+        while True:
+            res = self._get_json(url, params)
+            results = res.get("results", [])
+            contracts.extend(results)
+            next_url = res.get("next_url")
+            if next_url:
+                if next_url.startswith(self.BASE_URL):
+                    url = next_url[len(self.BASE_URL):]
+                    params = {} 
+                else: break
+            else: break
+            if len(contracts) > 10000: # Bump limit for safety
+                print(f"Warning: Truncating contract search for {symbol} at 10000")
+                break
 
     def get_ticker_details(self, symbol: str) -> Dict[str, Any]:
-        # Ticker Details v3
         details = self._get_json(f"/v3/reference/tickers/{symbol}")
         results = details.get("results", {})
-        
-        # Stock Snapshot for Price
         snapshot = self._get_json(f"/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}")
         snap_res = snapshot.get("ticker", {})
-        
         return {
             "symbol": symbol,
-            "current_price": snap_res.get("day", {}).get("c"), # Close price of current day so far
+            "current_price": snap_res.get("day", {}).get("c"),
             "market_cap": results.get("market_cap"),
-            "total_revenue": None, # Polygon fundys are separate endpoint
-            # ... we will rely on Hybrid for these gaps
+            "total_revenue": None, 
         }
 
     def get_options_chain(self, symbol: str) -> Dict[str, Any]:
-         # Polygon options chain iteration is complex, usually we just need expirations first
-         # Helper to list expirations?
-         # For now, we return empty as we will use Hybrid to get chain structure if needed
-         # or implement specific contract fetch later.
          return {"symbol": symbol, "expirations": []}
 
-
     def get_advanced_metrics(self, symbol: str) -> Dict[str, Any]:
-        metrics = {
-            "insider_net_shares": None,
-            "historical_volatility": None,
-            "iv_short": None,
-            "iv_long": None,
-            "iv_term_structure_ratio": None,
-            "iv_rank": None
-        }
+        return {}
         
-        try:
-            # 1. Get Current Stock Price & Details
-            stock_details = self.get_ticker_details(symbol)
-            curr_price = stock_details.get("current_price")
-            if not curr_price:
-                return metrics
+    def _calculate_historic_iv30(self, symbol: str, stock_history: Any) -> Dict[str, Any]:
+        # 1. Fetch Contract Universe
+        all_contracts = self._get_all_contracts(symbol)
+        if not all_contracts: return {}
+            
+        contracts_by_exp = {}
+        for c in all_contracts:
+            exp = c.get("expiration_date")
+            if exp not in contracts_by_exp: contracts_by_exp[exp] = []
+            contracts_by_exp[exp].append(c)
+        exp_dates = sorted(contracts_by_exp.keys())
+        
+        # 2. Iterate each day in history
+        daily_contracts = {} 
+        needed_tickers = set()
+        
+        for date, row in stock_history.iterrows():
+            stock_price = row['Close']
+            current_date = pd.to_datetime(date).tz_localize(None)
+            target_date = current_date + timedelta(days=30)
+            
+            # Find expiration closest to target_date
+            valid_exps = [e for e in exp_dates if datetime.strptime(e, "%Y-%m-%d") > (current_date + timedelta(days=7))]
+            if not valid_exps: continue
+                
+            closest_exp = min(valid_exps, key=lambda x: abs((datetime.strptime(x, "%Y-%m-%d") - target_date).days))
+            candidates = contracts_by_exp[closest_exp]
+            closest_contract_group = sorted(candidates, key=lambda x: abs(x.get("strike_price") - stock_price))
+            
+            if not closest_contract_group: continue
 
-            # 2. Get Expirations to find a LEAP (approx 1 year out)
-            # We need to find an ATM option.
-            # Polygon Options Chain API: /v3/reference/options/contracts
-            # Filter: underlying_ticker=SYMBOL, expiration >= 300 days
+            best_strike = closest_contract_group[0].get("strike_price")
+            call_contract = next((c for c in candidates if c.get("strike_price") == best_strike and c.get("contract_type") == "call"), None)
+            put_contract = next((c for c in candidates if c.get("strike_price") == best_strike and c.get("contract_type") == "put"), None)
             
-            # Helper to find ATM LEAP
-            params = {
-                "underlying_ticker": symbol,
-                "expiration_date.gte": (datetime.now() + timedelta(days=300)).strftime("%Y-%m-%d"),
-                "strike_price.gte": curr_price * 0.8,
-                "strike_price.lte": curr_price * 1.2,
-                "limit": 10,
-                "sort": "expiration_date",
-                "order": "asc"
-            }
-            res = self._get_json("/v3/reference/options/contracts", params)
-            contracts = res.get("results", [])
-            
-            if not contracts:
-                 print(f"No LEAPs found for {symbol}")
-                 return metrics
-            
-            # Find closest to ATM
-            # Contract format: ...
-            # We need the one closest to curr_price
-            best_contract = min(contracts, key=lambda x: abs(x.get("strike_price") - curr_price))
-            option_ticker = best_contract.get("ticker")
-            strike = best_contract.get("strike_price")
-            expiration = best_contract.get("expiration_date")
-            
-            # 3. Fetch History (1 Year) for this Option
-            # We use the option price history to back-calculate IV history
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=365)
-            
-            # Stock History (for Underlying Price reference)
-            stock_aggs = self._get_json(
-                f"/v2/aggs/ticker/{symbol}/range/1/day/{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}",
-                {"limit": 500}
-            )
-            
-            # Option History
-            opt_aggs = self._get_json(
-                 f"/v2/aggs/ticker/{option_ticker}/range/1/day/{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}",
+            if call_contract and put_contract:
+                daily_contracts[current_date.strftime("%Y-%m-%d")] = {
+                    "call": call_contract.get("ticker"),
+                    "put": put_contract.get("ticker"),
+                    "strike": best_strike,
+                    "t_days": (datetime.strptime(closest_exp, "%Y-%m-%d") - current_date).days
+                }
+                needed_tickers.add(call_contract.get("ticker"))
+                needed_tickers.add(put_contract.get("ticker"))
+                
+        # 3. Batch Fetch History
+        contract_histories = {} 
+        def fetch_contract_history(ticker):
+            end = datetime.now()
+            start = end - timedelta(days=380) 
+            aggs = self._get_json(
+                 f"/v2/aggs/ticker/{ticker}/range/1/day/{start.strftime('%Y-%m-%d')}/{end.strftime('%Y-%m-%d')}",
                  {"limit": 500}
             )
-            
-            stock_results = stock_aggs.get("results", [])
-            opt_results = opt_aggs.get("results", [])
-            
-            # Map by date to align
-            # Date is 't' (timestamp ms)
-            stock_map = {r['t']: r['c'] for r in stock_results}
-            
-            iv_history = []
-            
-            # Exp date object
-            exp_dt = datetime.strptime(expiration, "%Y-%m-%d")
+            res = aggs.get("results", [])
+            cmap = {}
+            for bar in res:
+                dt = datetime.fromtimestamp(bar['t'] / 1000.0).strftime("%Y-%m-%d")
+                cmap[dt] = bar['c']
+            return ticker, cmap
 
-            for bar in opt_results:
-                ts = bar['t']
-                if ts in stock_map:
-                    s_price = stock_map[ts]
-                    opt_price = bar['c']
-                    
-                    # Time to expiration from that date
-                    date_of_bar = datetime.fromtimestamp(ts / 1000.0)
-                    days_to_exp = (exp_dt - date_of_bar).days
-                    if days_to_exp <= 0: continue
-                    t_years = days_to_exp / 365.0
-                    
-                    # Calc IV
-                    # Using r=0.05, Call/Put?
-                    # Ticker has "C" or "P". e.g. O:TSLA230120C00100000
-                    is_call = "C" in option_ticker.split(symbol)[1] # Heuristic
-                    # Better: check contract type from details if available, but usually embedded.
-                    # Or just assume Call if we filtered that? We didn't filter type.
-                    # contracts endpoint return 'contract_type'.
-                    is_call_api = best_contract.get("contract_type") == "call"
-                    
-                    # If it's a Call
-                    if is_call_api:
-                         iv = IVEstimator.impl_vol_call(opt_price, s_price, strike, t_years)
-                         if iv: iv_history.append(iv)
-            
-            # 4. Calculate IV Rank
-            if iv_history:
-                low = min(iv_history)
-                high = max(iv_history)
-                current_iv = iv_history[-1] # Best proxy is the latest calculated
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_ticker = {executor.submit(fetch_contract_history, t): t for t in needed_tickers}
+            for future in concurrent.futures.as_completed(future_to_ticker):
+                t, h = future.result()
+                contract_histories[t] = h
                 
-                # Store "Current IV" based on this method
-                metrics["iv_short"] = current_iv # Actually this is long-term IV (LEAP)
-                metrics["iv_long"] = current_iv
-                
-                if high > low:
-                    metrics["iv_rank"] = (current_iv - low) / (high - low)
+        # 4. Calculate Daily IV
+        iv_series = []
+        for date_str, info in daily_contracts.items():
+            call_ticker = info['call']
+            put_ticker = info['put']
+            strike = info['strike']
+            t_days = info['t_days']
             
-            # 5. Get Short Term IV for Term Structure (Optional for now)
-            # ...
+            if date_str not in stock_history.index:
+                try: s_price = stock_history.loc[date_str]['Close']
+                except: continue
+            else: s_price = stock_history.loc[date_str]['Close']
+                 
+            c_hist = contract_histories.get(call_ticker, {})
+            p_hist = contract_histories.get(put_ticker, {})
+            c_price = c_hist.get(date_str)
+            p_price = p_hist.get(date_str)
             
-        except Exception as e:
-            print(f"Error calculating IV Rank for {symbol}: {e}")
-
-        return metrics
+            if c_price and p_price and t_days > 0:
+                t_years = t_days / 365.0
+                iv_call = IVEstimator.impl_vol_call(c_price, s_price, strike, t_years)
+                iv_put = IVEstimator.impl_vol_put(p_price, s_price, strike, t_years)
+                if iv_call and iv_put:
+                    avg_iv = (iv_call + iv_put) / 2
+                    if 0 < avg_iv < 5.0: iv_series.append(avg_iv)
+        return iv_series
 
 class HybridProvider(DataProvider):
     def __init__(self):
@@ -349,139 +315,37 @@ class HybridProvider(DataProvider):
         self.poly = PolygonProvider()
         
     def get_ticker_details(self, symbol: str) -> Dict[str, Any]:
-        # Merge YF (Fundys) + Polygon (Price?)
-        # YF is usually good enough for fundys.
-        yf_det = self.yf.get_ticker_details(symbol)
-        
-        # Let's trust YF for now for basics to minimize API calls unless necessary
-        return yf_det
+        return self.yf.get_ticker_details(symbol)
 
     def get_options_chain(self, symbol: str) -> Dict[str, Any]:
         return self.yf.get_options_chain(symbol)
 
     def get_advanced_metrics(self, symbol: str) -> Dict[str, Any]:
-        # 1. Get Base Metrics from YF (Insider, HV)
         yf_metrics = self.yf.get_advanced_metrics(symbol)
-        
-        # 2. Enhance with Polygon (IV Rank)
         try:
-            # We need Current Price for ATM and Stock History for IV Calc
-            # Since Polygon Stock API is blocked, we rely on YF for stock data.
             stock_details = self.get_ticker_details(symbol)
-            curr_price = stock_details.get("current_price")
-            if not curr_price:
-                return yf_metrics
-
-            # A. Find ATM LEAP (Polygon)
-            # Filter: underlying_ticker=SYMBOL, expiration >= 300 days
-            params = {
-                "underlying_ticker": symbol,
-                "expiration_date.gte": (datetime.now() + timedelta(days=300)).strftime("%Y-%m-%d"),
-                "strike_price.gte": curr_price * 0.8,
-                "strike_price.lte": curr_price * 1.2,
-                "limit": 10,
-                "sort": "expiration_date",
-                "order": "asc"
-            }
-            # Use Poly's _get_json helper directly
-            res = self.poly._get_json("/v3/reference/options/contracts", params)
-            contracts = res.get("results", [])
+            if not stock_details: return yf_metrics
             
-            
-            if not contracts:
-                 return yf_metrics
-            
-            # Find candidates closest to ATM
-            # Sort by distance to strike
-            candidates = sorted(contracts, key=lambda x: abs(x.get("strike_price") - curr_price))[:5] # Take top 5 closest
-            
+            yf_ticker = yf.Ticker(symbol)
             end_date = datetime.now()
             start_date = end_date - timedelta(days=365)
+            hist = yf_ticker.history(start=start_date.strftime('%Y-%m-%d'), end=end_date.strftime('%Y-%m-%d'))
             
-            best_iv_history = []
-            selected_contract = None
-            start_date_str = start_date.strftime('%Y-%m-%d')
-            end_date_str = end_date.strftime('%Y-%m-%d')
-            
-            # Iterate candidates to find one with good history
-            for contract in candidates:
-                c_ticker = contract.get("ticker")
+            if hist.empty: return yf_metrics
                 
-                # Check history count
-                opt_aggs = self.poly._get_json(
-                     f"/v2/aggs/ticker/{c_ticker}/range/1/day/{start_date_str}/{end_date_str}",
-                     {"limit": 500}
-                )
-                res = opt_aggs.get("results", [])
+            iv_series = self.poly._calculate_historic_iv30(symbol, hist)
+            if iv_series:
+                low = min(iv_series)
+                high = max(iv_series)
+                current = iv_series[-1]
                 
-                if len(res) > 20: # Threshold for "usable" history
-                     # Good candidate
-                     selected_contract = contract
-                     opt_results = res
-                     break
-                
-                # Keep track if we don't find any "Good" one, maybe fallback to the one with *most* data?
-                if len(res) > len(best_iv_history):
-                     best_iv_history = res
-                     selected_contract = contract
-                     opt_results = res
-
-            if not selected_contract or not opt_results:
-                 # No history found on any candidate
-                 return yf_metrics
-
-            option_ticker = selected_contract.get("ticker")
-            strike = selected_contract.get("strike_price")
-            expiration = selected_contract.get("expiration_date")
-            is_call_api = selected_contract.get("contract_type") == "call"
-            
-            # Map YF History (Index is Date/datetime)
-            # ...
-            # We need daily close prices to match against option prices
-            yf_ticker = yf.Ticker(symbol)
-            hist = yf_ticker.history(start=start_date_str, end=end_date_str)
-            
-            iv_history = []
-            exp_dt = datetime.strptime(expiration, "%Y-%m-%d")
-
-            for bar in opt_results:
-                ts = bar['t']
-                dt_obj = datetime.fromtimestamp(ts / 1000.0)
-                dt_str = dt_obj.strftime("%Y-%m-%d")
-                
-                # Find matching date in YF
-                # YF index string match might be easiest
-                try:
-                    # Look up using string date
-                    row = hist.loc[dt_str]
-                    s_price = row['Close']
-                except KeyError:
-                    continue # Skip if no matching stock data
-                
-                opt_price = bar['c']
-                
-                # Time to expiration
-                days_to_exp = (exp_dt - dt_obj).days
-                if days_to_exp <= 0: continue
-                t_years = days_to_exp / 365.0
-                
-                if is_call_api:
-                     iv = IVEstimator.impl_vol_call(opt_price, s_price, strike, t_years)
-                     if iv and iv > 0 and iv < 5.0: # Sanity check IV (0-500%)
-                         iv_history.append(iv)
-            
-            # C. Calculate IV Rank
-            if iv_history:
-                low = min(iv_history)
-                high = max(iv_history)
-                current_iv = iv_history[-1]
-                
-                yf_metrics["iv_short"] = current_iv # Proxy
-                
+                yf_metrics["iv_short"] = current
+                yf_metrics["iv_long"] = current
                 if high > low:
-                    yf_metrics["iv_rank"] = (current_iv - low) / (high - low)
-
+                    yf_metrics["iv_rank"] = (current - low) / (high - low)
+                    
         except Exception as e:
             print(f"Hybrid IV Error for {symbol}: {e}")
-            
+            import traceback
+            traceback.print_exc()
         return yf_metrics

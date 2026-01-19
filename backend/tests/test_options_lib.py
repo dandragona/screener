@@ -34,3 +34,22 @@ class TestIVEstimator:
         target_price = 5.2833
         sigma = IVEstimator.impl_vol_call(target_price, 100, 100, 1, 0.05)
         assert math.isclose(sigma, 0.05, rel_tol=0.1)
+
+    def test_impl_vol_call_zero_time(self):
+        # T=0 should return None
+        sigma = IVEstimator.impl_vol_call(5, 100, 100, 0, 0.05)
+        assert sigma is None
+
+    def test_impl_vol_overflow_protection(self):
+        # This input previously caused RuntimeWarning: overflow encountered in scalar power
+        # S=100, K=300 (Deep OTM), T=0.1, Market Price=50 (Impossible high price for OTM)
+        # Should return None (diverged/impossible) or clamped value, but NOT crash
+        sigma = IVEstimator.impl_vol_call(50, 100, 300, 0.1, 0.05)
+        assert sigma is None or (sigma >= 0 and sigma <= 20)
+
+    def test_impl_vol_call_high_vol(self):
+        # High volatility case: S=100, K=100, T=1, r=0.05, Price=99
+        # Should converge to a high sigma, not crash
+        sigma = IVEstimator.impl_vol_call(99, 100, 100, 1, 0.05)
+        assert sigma is not None
+        assert sigma > 1.0
