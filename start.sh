@@ -11,22 +11,38 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # Check if venv exists, if so activate it
-if [ -d "venv" ]; then
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r backend/requirements.txt
+else
     source venv/bin/activate
 fi
 
-# Check for flags
-if [[ "$*" == *"--enable-iv"* ]]; then
-    echo "Enabling IV Rank calculation (slow mode)..."
-    export ENABLE_IV_RANK=true
+# Database Setup
+echo "Checking Database..."
+cd backend
+if [ ! -f "screen.db" ]; then
+    echo "Initializing Database..."
+    alembic upgrade head
+    
+    echo "Database created. It is currently empty."
+    read -p "Do you want to run the ingestion script now? (Takes ~10m) [y/N] " -n 1 -r
+    echo 
+    if [[ $REPLY =~ ^[Yy]$ ]]
+    then
+        python ingest.py
+    else
+        echo "Skipping ingestion. The UI will show empty results until you run 'python backend/ingest.py'."
+    fi
 else
-    echo "Running in fast mode (IV Rank disabled). Use --enable-iv to enable."
-    export ENABLE_IV_RANK=false
+    # Always run migrations to be safe
+    alembic upgrade head
 fi
 
 # Start Backend
 echo "Starting Backend..."
-cd backend
 uvicorn main:app --reload --port 8000 &
 BACKEND_PID=$!
 cd ..
