@@ -17,7 +17,6 @@
 10. Add LEAPs explanation page.
 11. Add contact page.
 12. Setup feature request automation.
-13. Scale to Russell 2000.
-14. Add an about page, where I discuss who I am, my investment philosophy, and why I built this tool.
+13. Add an about page, where I discuss who I am, my investment philosophy, and why I built this tool.
     * Explains pricing using data, I'm only trying to be paid for value I can provide.
-15. Add a page that explains the metrics I use, why I use them, and how to interpret them.
+14. Add a page that explains the metrics I use, why I use them, and how to interpret them.

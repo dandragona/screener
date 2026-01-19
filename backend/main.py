@@ -45,8 +45,14 @@ def screen_stocks(tickers: Optional[List[str]] = Query(None)):
         from symbol_loader import get_sp1500_tickers
         target_tickers = get_sp1500_tickers()
     
-    results = screener.screen_stocks(target_tickers)
-    return results
+    import json
+    from fastapi.responses import StreamingResponse
+
+    async def generate_results():
+        for result in screener.screen_stocks_generator(target_tickers):
+            yield json.dumps(result) + "\n"
+
+    return StreamingResponse(generate_results(), media_type="application/x-ndjson")
 
 @app.get("/ticker/{symbol}")
 def get_ticker_details(symbol: str):

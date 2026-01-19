@@ -1,6 +1,6 @@
 import pytest
-from unittest.mock import MagicMock, patch
-from data_provider import YFinanceProvider
+from unittest.mock import MagicMock, patch, call
+from data_provider import YFinanceProvider, PolygonProvider
 
 class TestYFinanceProvider:
     @pytest.fixture
@@ -94,3 +94,35 @@ class TestYFinanceProvider:
         assert chain["symbol"] == "OPT"
         assert chain["expirations"] == ("2023-01-01", "2023-02-01")
         mock_yf_ticker.assert_called_with("OPT")
+
+class TestPolygonProvider:
+    @patch("data_provider.PolygonProvider._get_json")
+    def test_get_all_contracts_expired_logic(self, mock_get_json):
+        # Verify that we fetch BOTH expired and active contracts
+        provider = PolygonProvider()
+        symbol = "TEST"
+        
+        # Mock responses
+        # Call 1: Expired loop (returns 1 contract, no next_url)
+        # Call 2: Active loop (returns 1 contract, no next_url)
+        mock_get_json.side_effect = [
+            {"results": [{"ticker": "EXP"}], "next_url": None}, 
+            {"results": [{"ticker": "ACT"}], "next_url": None}
+        ]
+        
+        contracts = provider._get_all_contracts(symbol)
+        
+        assert len(contracts) == 2
+        assert contracts[0]["ticker"] == "EXP"
+        assert contracts[1]["ticker"] == "ACT"
+        
+        # Verify calls
+        assert mock_get_json.call_count == 2
+        
+        # Check first call had expired=true
+        call1_kwargs = mock_get_json.call_args_list[0][0][1] # params
+        assert call1_kwargs.get("expired") == "true"
+        
+        # Check second call had expired=false
+        call2_kwargs = mock_get_json.call_args_list[1][0][1] # params
+        assert call2_kwargs.get("expired") == "false"
