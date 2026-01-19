@@ -142,13 +142,11 @@ class PolygonProvider(DataProvider):
     def _get_json(self, endpoint: str, params: Dict[str, Any] = {}) -> Dict[str, Any]:
         params["apiKey"] = self.api_key
         url = f"{self.BASE_URL}{endpoint}"
-        try:
-            resp = requests.get(url, params=params)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            print(f"Polygon API Error {url}: {e}")
-            return {}
+        # Removed try/except to allow retry_with_backoff to work.
+        # Added timeout to prevent hanging.
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
             
     def _get_all_contracts(self, symbol: str, min_strike: float=None, max_strike: float=None) -> List[Dict[str, Any]]:
         contracts = []
@@ -382,7 +380,7 @@ class PolygonProvider(DataProvider):
                 cmap[dt] = bar['c']
             return ticker, cmap
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             future_to_ticker = {executor.submit(fetch_contract_history, t): t for t in needed_tickers}
             for future in concurrent.futures.as_completed(future_to_ticker):
                 t, h = future.result()

@@ -78,7 +78,7 @@ The backend is built with **FastAPI** and serves data in two modes:
     *   **Real-time:** Fetches fresh data using the `HybridProvider` to ensure the detail view shows the latest price and options data.
 
 3.  **AI Analysis (`/analyze/{symbol}`):**
-    *   Fetches fresh details.
+    *   Uses stored screened data from the database (no live fetch).
     *   Passes data to `AIDescriptionGenerator` (backed by LLM) to generate a textual summary.
 
 ## Data Structures

@@ -103,25 +103,41 @@ def get_options_chain(symbol: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 @app.get("/analyze/{symbol}")
-def analyze_stock(symbol: str):
+def analyze_stock(symbol: str, db: Session = Depends(get_db)):
     """
-    Generate an AI-powered analysis for a specific stock.
+    Generate an AI-powered analysis for a specific stock using the latest screened data.
     """
     try:
-        # Fetch fresh details for the analysis
-        details = data_provider.get_ticker_details(symbol)
+        # Find the latest date in results
+        # We could optimize this to just get the latest result for this symbol directly if we assume dates are consistent,
+        # but matching the /screen logic (latest_date_query) ensures we use the same "batch".
+        # However, for a specific symbol, we just want the most recent data available.
         
-        # Calculate basic metrics if missing (similar to simple logic in prev version)
+        result = db.query(ScreenResult).filter(
+            ScreenResult.symbol == symbol
+        ).order_by(desc(ScreenResult.date)).first()
+        
+        if not result or not result.raw_data:
+             raise HTTPException(status_code=404, detail=f"No screened data found for {symbol}")
+        
+        details = result.raw_data
+        
+        # Calculate basic metrics if missing (though they should be in raw_data from ingestion)
+        # We can keep this fallback logic just in case ingestion didn't calc it or it's old data
+        if "calculated_metrics" not in details:
+             details["calculated_metrics"] = {}
+             
+        # Ensure p_fcf is there if needed
         fcf = details.get("free_cash_flow")
         market_cap = details.get("market_cap")
-        p_fcf = (market_cap / fcf) if fcf and fcf > 0 else None
-        
-        if "calculated_metrics" not in details:
-            details["calculated_metrics"] = {}
-        details["calculated_metrics"]["p_fcf"] = p_fcf
+        if "p_fcf" not in details["calculated_metrics"]:
+             p_fcf = (market_cap / fcf) if fcf and fcf > 0 else None
+             details["calculated_metrics"]["p_fcf"] = p_fcf
         
         analysis = ai_generator.generate_description(symbol, details)
         return {"symbol": symbol, "analysis": analysis}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
