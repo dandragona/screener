@@ -1,11 +1,18 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import desc, func
 import uvicorn
-from typing import List, Optional
-from data_provider import YFinanceProvider
-from screener import Screener
+from typing import List, Optional, Any
+import json
+from datetime import date
+
+# Local imports
+from database import get_db
+from models import ScreenResult, Stock
+from data_provider import HybridProvider
 from ai_service import AIDescriptionGenerator
-from config import DEFAULT_TICKERS, API_TITLE, API_HOST, API_PORT
+from config import API_TITLE, API_HOST, API_PORT
 from dotenv import load_dotenv
 import os
 
@@ -22,10 +29,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize dependencies
-from data_provider import HybridProvider
+# Initialize data provider for detail views (live data for specific ticker)
+# We keep this for /ticker/{symbol} which might want fresh real-time price/options
 data_provider = HybridProvider()
-screener = Screener(data_provider)
 ai_generator = AIDescriptionGenerator()
 
 @app.get("/health")
@@ -33,30 +39,58 @@ def health_check():
     return {"status": "ok"}
 
 @app.get("/screen")
-def screen_stocks(tickers: Optional[List[str]] = Query(None)):
+def screen_stocks(
+    tickers: Optional[List[str]] = Query(None),
+    min_score: float = 0.0,
+    min_market_cap: float = 0.0,
+    sector: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
     """
-    Screen a list of stocks based on Value & Quality criteria.
-    If no tickers provided, uses the Russell 2000 list.
+    Get screened stocks from the database.
+    Results are pre-calculated daily.
     """
-    if tickers:
-        target_tickers = tickers
-    else:
-        # Load S&P 1500
-        from symbol_loader import get_sp1500_tickers
-        target_tickers = get_sp1500_tickers()
+    # Find the latest date in results
+    latest_date_query = db.query(func.max(ScreenResult.date)).scalar()
     
-    import json
-    from fastapi.responses import StreamingResponse
+    if not latest_date_query:
+        return [] # No data yet
 
-    async def generate_results():
-        for result in screener.screen_stocks_generator(target_tickers):
-            yield json.dumps(result) + "\n"
+    query = db.query(ScreenResult).join(Stock).filter(ScreenResult.date == latest_date_query)
 
-    return StreamingResponse(generate_results(), media_type="application/x-ndjson")
+    # Filter by Tickers
+    if tickers:
+        query = query.filter(ScreenResult.symbol.in_(tickers))
+
+    # filter by score
+    if min_score > 0:
+        query = query.filter(ScreenResult.score >= min_score)
+
+    # Filter by Market Cap
+    if min_market_cap > 0:
+        # Note: market_cap is stored in ScreenResult, or we can filter via raw_data or Stock?
+        # We added market_cap column to ScreenResult for this purpose in Phase 1
+        query = query.filter(ScreenResult.market_cap >= min_market_cap)
+
+    # Filter by Sector
+    if sector:
+        query = query.filter(Stock.sector == sector)
+
+    # Sort by Score DESC
+    query = query.order_by(desc(ScreenResult.score))
+    
+    # Pagination
+    results = query.offset(offset).limit(limit).all()
+    
+    # Return raw_data (the JSON blob which matches the old API format)
+    return [r.raw_data for r in results]
 
 @app.get("/ticker/{symbol}")
 def get_ticker_details(symbol: str):
     try:
+        # We can still fetch live data for details view
         return data_provider.get_ticker_details(symbol)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -77,24 +111,7 @@ def analyze_stock(symbol: str):
         # Fetch fresh details for the analysis
         details = data_provider.get_ticker_details(symbol)
         
-        # Use screener to calculate metrics consistently
-        # Note: We might want to make calculate_metrics public or accessible if we want to reuse it here
-        # For now, we reuse the private method logic via a helper or just rely on what we can get.
-        # Ideally, we should refactor Screener to have a public `enrich_data` method.
-        # But per current refactor plan, I'll stick to a simple clean up.
-        
-        # We can actually use the screener to get the enriched details if we passed a list of one
-        # but that might be overkill. Let's just use the logic we have or instantiate a screener helper.
-        # For this refactor, let's keep it simple and just let the AI service handle the raw details 
-        # or calculate what's missing if critical.
-        
-        # Actually, let's just do a quick calculation here or if we want to be DRY, use the screener.
-        # Let's use the screener's _calculate_metrics by making it public or using it via a list call.
-        
-        # Let's fix the screener to have a public method for single items in a future step if needed.
-        # For now, we will duplicate the small calculation or just pass raw data.
-        # The AI service prompts asks for P/FCF, so we should calculate it.
-        
+        # Calculate basic metrics if missing (similar to simple logic in prev version)
         fcf = details.get("free_cash_flow")
         market_cap = details.get("market_cap")
         p_fcf = (market_cap / fcf) if fcf and fcf > 0 else None
