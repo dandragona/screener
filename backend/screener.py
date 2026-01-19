@@ -156,12 +156,15 @@ class Screener:
         
         return details
 
-    def _process_ticker(self, ticker: str) -> Optional[Dict[str, Any]]:
-        """Process a single ticker. Helper for threading."""
+    def process_ticker(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Process a single ticker. Helper for threading/ingestion."""
         try:
             details = self.data_provider.get_ticker_details(ticker)
             
             # --- Filter 1: Market Cap ---
+            # If market cap is missing, we might filter it out or keep it.
+            # For ingestion, maybe we want everything? But the user rule was Filter > 2B.
+            # Let's keep the filter for now to save DB space on junk.
             if details.get("market_cap", 0) < MIN_MARKET_CAP:
                 return None
 
@@ -188,7 +191,7 @@ class Screener:
         # Use efficient parallel processing
         # Adjust max_workers based on expected load. heavy rate limiting observed with 20.
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            future_to_ticker = {executor.submit(self._process_ticker, ticker): ticker for ticker in tickers}
+            future_to_ticker = {executor.submit(self.process_ticker, ticker): ticker for ticker in tickers}
             for future in concurrent.futures.as_completed(future_to_ticker):
                 ticker = future_to_ticker[future]
                 try:
@@ -206,7 +209,7 @@ class Screener:
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            future_to_ticker = {executor.submit(self._process_ticker, ticker): ticker for ticker in tickers}
+            future_to_ticker = {executor.submit(self.process_ticker, ticker): ticker for ticker in tickers}
             for future in concurrent.futures.as_completed(future_to_ticker):
                 ticker = future_to_ticker[future]
                 try:
