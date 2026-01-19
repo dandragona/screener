@@ -14,6 +14,18 @@ class Stock(Base):
     last_updated = Column(DateTime(timezone=True), onupdate=func.now())
 
     results = relationship("ScreenResult", back_populates="stock")
+    sentiment = relationship("StockSentiment", back_populates="stock", uselist=False)
+
+class StockSentiment(Base):
+    __tablename__ = "stock_sentiment"
+
+    symbol = Column(String, ForeignKey("stocks.symbol"), primary_key=True, index=True)
+    score = Column(Float)
+    last_updated = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+    article_count = Column(Integer)
+    sentiment_source_data = Column(JSON, nullable=True)
+
+    stock = relationship("Stock", back_populates="sentiment")
 
 class ScreenResult(Base):
     __tablename__ = "screen_results"
@@ -28,6 +40,7 @@ class ScreenResult(Base):
     p_fcf = Column(Float, nullable=True)
     peg_ratio = Column(Float, nullable=True)
     market_cap = Column(Float, nullable=True)
+    iv30 = Column(Float, nullable=True)
     
     # All other details stored here
     raw_data = Column(JSON, nullable=True)

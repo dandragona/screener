@@ -6,7 +6,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Default to local SQLite if no DATABASE_URL is set
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./screen.db")
+# Default to local SQLite if no DATABASE_URL is set
+basedir = os.path.abspath(os.path.dirname(__file__))
+db_path = os.path.join(basedir, "screen.db")
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{db_path}")
 
 # Handle "postgres://" fix for SQLAlchemy (Heroku/Render sometimes use postgres:// instead of postgresql://)
 if DATABASE_URL.startswith("postgres://"):
