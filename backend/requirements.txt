@@ -12,3 +12,7 @@ lxml
 sqlalchemy
 psycopg2-binary
 alembic
+aiohttp
+tiingo
+transformers
+torch

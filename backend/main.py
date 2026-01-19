@@ -44,7 +44,7 @@ def screen_stocks(
     min_score: float = 0.0,
     min_market_cap: float = 0.0,
     sector: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 2000,
     offset: int = 0,
     db: Session = Depends(get_db)
 ):

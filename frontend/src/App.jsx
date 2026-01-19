@@ -182,6 +182,7 @@ function App() {
                     <th>Symbol</th>
                     <th>Price</th>
                     <th>Score</th>
+                    <th>Sentiment</th>
                     <th>P/FCF</th>
                     <th>PEG</th>
                     <th>ROE</th>
@@ -227,6 +228,20 @@ function App() {
                           }}>
                             {score.toFixed(1)}
                           </span>
+                        </td>
+                        <td>
+                          {r.sentiment_score !== undefined ? (
+                            <span style={{
+                              fontWeight: '600',
+                              color: r.sentiment_score > 0.2 ? 'var(--success-color)' :
+                                r.sentiment_score < -0.2 ? 'var(--danger-color)' : 'var(--text-secondary)'
+                            }}>
+                              {r.sentiment_score.toFixed(2)}
+                              <span style={{ fontSize: '0.75em', opacity: 0.6, marginLeft: '4px' }}>
+                                ({r.article_count || 0})
+                              </span>
+                            </span>
+                          ) : <span style={{ color: 'var(--text-secondary)', opacity: 0.5 }}>--</span>}
                         </td>
                         <td>{r.calculated_metrics?.p_fcf ? r.calculated_metrics.p_fcf.toFixed(1) : 'N/A'}</td>
                         <td>{r.peg_ratio?.toFixed(2) || 'N/A'}</td>
