@@ -1,0 +1,1 @@
+{"features": ["log_ret", "volatility_30d", "ma_20", "price_vs_ma_20", "ma_50", "price_vs_ma_50", "ma_200", "price_vs_ma_200", "rsi", "macd", "macd_sig", "atr", "vol_ma_20", "vol_rel", "iv30", "VIX_close", "VIX_ret_30d", "SPY_close", "SPY_ret_30d", "GLD_close", "GLD_ret_30d"], "date": "2026-01-20T22:20:05.527704", "metrics": {"accuracy": 0.125}}

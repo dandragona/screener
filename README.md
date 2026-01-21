@@ -9,6 +9,8 @@ A high-performance "Hybrid" stock screener.
 
 - `backend/`: FastAPI application + Ingestion Engine (`ingest.py`)
 - `frontend/`: React + Vite application
+- `docs/`: Project documentation and research
+- `scripts/`: Debug and maintenance scripts
 
 ## Prerequisites
 

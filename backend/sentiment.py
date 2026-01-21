@@ -168,8 +168,9 @@ class SentimentService:
             # though 'startDate' param should handle it.
             tags = article.get('tickers', [])
             for tag in tags:
-                if tag in ticker_articles_map:
-                    ticker_articles_map[tag].append(article)
+                tag_upper = tag.upper()
+                if tag_upper in ticker_articles_map:
+                    ticker_articles_map[tag_upper].append(article)
 
         # 4. Analyze and Upsert
         for symbol, articles in ticker_articles_map.items():

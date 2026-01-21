@@ -16,3 +16,6 @@ aiohttp
 tiingo
 transformers
 torch
+xgboost
+scikit-learn
+pyarrow

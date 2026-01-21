@@ -13,17 +13,16 @@ class Screener:
             return None
         return val
 
-    def _calculate_score(self, details: Dict[str, Any], p_fcf: float) -> float:
+    def _calculate_score(self, details: Dict[str, Any], p_fcf: float, sentiment_score: float = 0.0) -> float:
         """
-        Calculate a 0-100 score based on Value, Quality, Growth, and Volatility/Insider signals.
+        Calculate a 0-100 score based on Value, Quality, Growth, Sentiment, Volatility, and Insider signals.
         Returns a float between 0 and 100.
         """
         score = 0.0
 
-        # --- Value Metrics (30 pts) ---
+        # --- Value Metrics (25 pts) ---
         
-        # 1. P/FCF (15 pts) - Reduced from 20
-        # 0 pts if > 30, 15 pts if < 15
+        # 1. P/FCF (15 pts)
         if p_fcf is not None and p_fcf != float('inf'):
             if p_fcf < 0:
                 score += 0
@@ -32,38 +31,31 @@ class Screener:
             elif p_fcf >= 30:
                 score += 0
             else:
-                # Linear interpolation: 15 -> 0 as p_fcf 15 -> 30
-                # Slope = -15 / 15 = -1.0
                 score += 15 - (p_fcf - 15) * (15 / 15)
         
-        # 2. PEG Ratio (15 pts) - Reduced from 20
-        # 0 pts if > 2.5, 15 pts if < 1.0
+        # 2. PEG Ratio (10 pts)
         peg = details.get("peg_ratio")
         if peg is not None:
             if peg <= 1.0:
-                score += 15
+                score += 10
             elif peg >= 2.5:
                 score += 0
             else:
-                # Linear: 15 -> 0 as peg 1.0 -> 2.5
-                score += 15 - (peg - 1.0) * (15 / 1.5)
+                score += 10 - (peg - 1.0) * (10 / 1.5)
 
-        # --- Quality Metrics (35 pts) ---
+        # --- Quality Metrics (25 pts) ---
 
-        # 3. ROE (15 pts) - Reduced from 20
-        # 0 pts if < 5%, 15 pts if > 20%
+        # 3. ROE (10 pts)
         roe = details.get("return_on_equity")
         if roe is not None:
             if roe >= 0.20:
-                score += 15
+                score += 10
             elif roe <= 0.05:
                 score += 0
             else:
-                # Linear: 0 -> 15 as roe 0.05 -> 0.20
-                score += (roe - 0.05) * (15 / 0.15)
+                score += (roe - 0.05) * (10 / 0.15)
 
         # 4. Operating Margins (10 pts)
-        # 0 pts if < 5%, 10 pts if > 20%
         margins = details.get("operating_margins")
         if margins is not None:
              if margins >= 0.20:
@@ -73,49 +65,64 @@ class Screener:
              else:
                  score += (margins - 0.05) * (10 / 0.15)
 
-        # 5. Debt/Equity (10 pts)
-        # 0 pts if > 2.0, 10 pts if < 0.5
+        # 5. Debt/Equity (5 pts)
         de = details.get("debt_to_equity")
         if de is not None:
              if de <= 0.5:
-                 score += 10
+                 score += 5
              elif de >= 2.0:
                  score += 0
              else:
-                 score += 10 - (de - 0.5) * (10 / 1.5)
+                 score += 5 - (de - 0.5) * (5 / 1.5)
 
-        # --- Growth Metrics (15 pts) ---
+        # --- Growth Metrics (10 pts) ---
 
-        # 6. Analyst Upside (15 pts) - Reduced from 20
-        # 0 pts if < 0% upside, 15 pts if > 20% upside
+        # 6. Analyst Upside (10 pts)
         current = details.get("current_price")
         target = details.get("target_mean")
         if current and target:
             upside = (target - current) / current
             if upside >= 0.20:
-                score += 15
+                score += 10
             elif upside <= 0:
                 score += 0
             else:
-                score += upside * (15 / 0.20)
+                score += upside * (10 / 0.20)
 
-        # --- New Metrics (20 pts) ---
+        # --- Sentiment (15 pts) ---
+        
+        # 7. News Sentiment
+        # Score ranges from -1 to 1. 
+        # -1 -> 0 pts
+        # 0 -> 7.5 pts
+        # 1 -> 15 pts
+        # Formula: (sentiment + 1) / 2 * 15
+        if sentiment_score is not None:
+            # Clamp between -1 and 1 just in case
+            s_val = max(-1.0, min(1.0, sentiment_score))
+            score += ((s_val + 1) / 2.0) * 15
 
-        # 7. Cheap Volatility (10 pts)
-        # IV < HV (+5)
-        # Term Structure Ratio < 1.1 (+5)
+        # --- Volatility (15 pts) ---
+
+        # 8. IV Rank (10 pts)
+        # Low Rank is GOOD for buying opportunities (cheap options)
+        # Rank 0 -> 10 pts
+        # Rank 100 -> 0 pts
+        iv_rank = details.get("iv_rank")
+        if iv_rank is not None:
+            # iv_rank is usually 0.0 to 1.0 (or 0 to 100 ?) 
+            # In data_provider/ingest it is calculated as float 0.0-1.0
+            score += (1.0 - iv_rank) * 10
+            
+        # 9. IV < HV (5 pts)
         iv = details.get("iv_short") # Using short term as "current IV"
         hv = details.get("historical_volatility")
-        ratio = details.get("iv_term_structure_ratio")
-        
         if iv and hv and iv < hv:
             score += 5
+
+        # --- Insider (10 pts) ---
             
-        if ratio and ratio < 1.1:
-            score += 5
-            
-        # 8. Insider Value (10 pts)
-        # Net Insider Buying > 0 (+10)
+        # 10. Insider Value (10 pts)
         net_insider = details.get("insider_net_shares")
         if net_insider and net_insider > 0:
             score += 10
@@ -131,7 +138,9 @@ class Screener:
         p_fcf = (market_cap / fcf) if fcf else float('inf')
         
         # Calculate Score
-        score = self._calculate_score(details, p_fcf)
+        # [NOTE] We expect sentiment_score to be in details if passed from ingest
+        sentiment_score = details.get("sentiment_score", 0.0)
+        score = self._calculate_score(details, p_fcf, sentiment_score)
 
         details["calculated_metrics"] = {
             "p_fcf": self._sanitize(p_fcf),
@@ -156,10 +165,13 @@ class Screener:
         
         return details
 
-    def process_ticker(self, ticker: str, fetch_mode: str = "full") -> Optional[Dict[str, Any]]:
+    def process_ticker(self, ticker: str, fetch_mode: str = "full", sentiment_score: float = 0.0) -> Optional[Dict[str, Any]]:
         """Process a single ticker. Helper for threading/ingestion."""
         try:
             details = self.data_provider.get_ticker_details(ticker)
+            
+            # Inject sentiment early so it filters down
+            details["sentiment_score"] = sentiment_score
             
             # --- Filter 1: Market Cap ---
             # If market cap is missing, we might filter it out or keep it.
