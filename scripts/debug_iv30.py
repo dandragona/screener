@@ -1,4 +1,11 @@
-from data_provider import HybridProvider, PolygonProvider, YFinanceProvider
+import sys
+import os
+
+# Add project root and backend to path to satisfy internal imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
+
+from backend.data_provider import HybridProvider, PolygonProvider, YFinanceProvider
 import pandas as pd
 import logging
 import yfinance as yf

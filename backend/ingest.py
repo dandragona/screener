@@ -142,7 +142,7 @@ def process_ticker_task(ticker: str):
         # Or just let it propagate to the future.
         raise e
 
-def ingest_data(limit: int = None, custom_tickers: list = None):
+def ingest_data(limit: int = None, custom_tickers: list = None, force_sentiment: bool = False):
     print("Starting ingestion process...")
     
     # Initialize components
@@ -168,7 +168,7 @@ def ingest_data(limit: int = None, custom_tickers: list = None):
         print("Starting Sentiment Phase...")
         sentiment_service = SentimentService(db)
         # Run async update
-        asyncio.run(sentiment_service.update_sentiments(tickers[:limit] if limit else tickers))
+        asyncio.run(sentiment_service.update_sentiments(tickers[:limit] if limit else tickers, force_refresh=force_sentiment))
         
         # Pre-load sentiment map for fast lookup during data phase
         from models import StockSentiment
@@ -245,6 +245,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Ingest stock data.")
     parser.add_argument("--limit", type=int, help="Limit number of tickers to process")
     parser.add_argument("--tickers", nargs="+", help="Specific tickers to process")
+    parser.add_argument("--force-sentiment", action="store_true", help="Force refresh of sentiment scores")
     
     args = parser.parse_args()
-    ingest_data(limit=args.limit, custom_tickers=args.tickers)
+    ingest_data(limit=args.limit, custom_tickers=args.tickers, force_sentiment=args.force_sentiment)
