@@ -31,3 +31,7 @@ lerna-debug.log*
 
 # Project specific
 *.db
+
+# ML Data
+backend/ml/data/
+*.parquet

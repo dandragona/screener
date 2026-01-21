@@ -310,7 +310,13 @@ class PolygonProvider(DataProvider):
         if stock_history.empty: return []
         
         # Approximate range to reduce payload
-        prices = stock_history['Close']
+        if 'Close' in stock_history.columns:
+            prices = stock_history['Close']
+        elif 'close' in stock_history.columns:
+            prices = stock_history['close']
+        else:
+            return []
+            
         low_price = prices.min()
         high_price = prices.max()
         
@@ -334,7 +340,9 @@ class PolygonProvider(DataProvider):
         needed_tickers = set()
         
         for date, row in stock_history.iterrows():
-            stock_price = row['Close']
+            stock_price = row.get('Close') or row.get('close')
+            if not stock_price: continue
+            
             current_date = pd.to_datetime(date).tz_localize(None)
             target_date = current_date + timedelta(days=30)
             
@@ -395,9 +403,13 @@ class PolygonProvider(DataProvider):
             t_days = info['t_days']
             
             if date_str not in stock_history.index:
-                try: s_price = stock_history.loc[date_str]['Close']
+                try: 
+                     row = stock_history.loc[date_str]
+                     s_price = row.get('Close') or row.get('close')
                 except: continue
-            else: s_price = stock_history.loc[date_str]['Close']
+            else: 
+                 row = stock_history.loc[date_str]
+                 s_price = row.get('Close') or row.get('close')
                  
             c_hist = contract_histories.get(call_ticker, {})
             p_hist = contract_histories.get(put_ticker, {})

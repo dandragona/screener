@@ -10,6 +10,15 @@ function App() {
   const [analyzingSymbol, setAnalyzingSymbol] = useState(null)
   const [analysisResult, setAnalysisResult] = useState(null)
   const [analysisCache, setAnalysisCache] = useState({})
+  const [sortConfig, setSortConfig] = useState({ key: 'calculated_metrics.score', direction: 'desc' })
+
+  const handleSort = (key) => {
+    let direction = 'desc'
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+      direction = 'asc'
+    }
+    setSortConfig({ key, direction })
+  }
 
   const handleAnalyze = async (symbol) => {
     setAnalyzingSymbol(symbol)
@@ -43,34 +52,17 @@ function App() {
   // Default tickers to start with (Empty to trigger backend default/Russell 2000)
   const DEFAULT_INPUT = ""
 
-  const [lastUpdated, setLastUpdated] = useState(null)
+
 
   useEffect(() => {
     handleScreen()
   }, [])
 
-  const handleScreen = async (forceRefresh = false) => {
+  const handleScreen = async () => {
     setLoading(true)
     setError(null)
 
     try {
-      // Check cache unless forcing refresh
-      if (!forceRefresh) {
-        const cached = localStorage.getItem('screenerResults')
-        if (cached) {
-          const { data, timestamp } = JSON.parse(cached)
-          const now = Date.now()
-          // 24 hours in milliseconds
-          const ONE_DAY = 24 * 60 * 60 * 1000
-
-          if (now - timestamp < ONE_DAY) {
-            setResults(data)
-            setLastUpdated(timestamp)
-            setLoading(false)
-            return
-          }
-        }
-      }
 
       setResults([])
       // Use default input if tickers state is empty
@@ -83,13 +75,7 @@ function App() {
       }
 
       const data = await response.json()
-      // Sort by score
-      const sorted = data.sort((a, b) =>
-        (b.calculated_metrics?.score || 0) - (a.calculated_metrics?.score || 0)
-      )
-
-      setResults(sorted)
-      setLastUpdated(Date.now())
+      setResults(data)
 
     } catch (err) {
       console.error(err)
@@ -108,6 +94,35 @@ function App() {
       borderColor: `hsla(${hue}, 80%, 35%, 0.4)`
     }
   }
+
+  const sortedResults = [...results].sort((a, b) => {
+    const getValue = (obj, path) => path.split('.').reduce((acc, part) => acc && acc[part], obj)
+
+    let valA = getValue(a, sortConfig.key)
+    let valB = getValue(b, sortConfig.key)
+
+    // Handle symbol specifically
+    if (sortConfig.key === 'symbol') {
+      return sortConfig.direction === 'asc'
+        ? String(valA || '').localeCompare(String(valB || ''))
+        : String(valB || '').localeCompare(String(valA || ''))
+    }
+
+    // specific handling for null/undefined to always be at bottom
+    const isANull = valA === null || valA === undefined
+    const isBNull = valB === null || valB === undefined
+
+    if (isANull && isBNull) return 0
+    if (isANull) return 1
+    if (isBNull) return -1
+
+    const numA = Number(valA)
+    const numB = Number(valB)
+
+    if (numA < numB) return sortConfig.direction === 'asc' ? -1 : 1
+    if (numA > numB) return sortConfig.direction === 'asc' ? 1 : -1
+    return 0
+  })
 
   return (
     <div className="container">
@@ -143,30 +158,8 @@ function App() {
         </div>
 
         <div style={{ textAlign: 'center', marginTop: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-          <button
-            onClick={() => handleScreen(true)}
-            disabled={loading}
-            style={{
-              padding: '10px 24px',
-              fontSize: '1rem',
-              borderRadius: '8px',
-              border: 'none',
-              background: 'var(--accent-gradient)',
-              color: 'white',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              opacity: loading ? 0.7 : 1,
-              fontWeight: 600,
-              boxShadow: '0 4px 12px rgba(100, 108, 255, 0.3)'
-            }}
-          >
-            {loading ? 'Refreshing...' : 'Refresh Data'}
-          </button>
 
-          {lastUpdated && (
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', opacity: 0.8 }}>
-              Last updated: {new Date(lastUpdated).toLocaleString()}
-            </div>
-          )}
+
         </div>
       </section>
 
@@ -179,25 +172,40 @@ function App() {
               <table style={{ borderCollapse: 'separate', borderSpacing: '0 12px' }}>
                 <thead>
                   <tr>
-                    <th>Symbol</th>
-                    <th>Price</th>
-                    <th>Score</th>
-                    <th>Sentiment</th>
-                    <th>P/FCF</th>
-                    <th>PEG</th>
-                    <th>ROE</th>
-                    <th>Debt/Eq</th>
-                    <th>HV</th>
-                    <th>IV (S)</th>
-                    <th>IV Rank</th>
-                    <th>IV Ratio</th>
-                    <th>Insider</th>
+                    {[
+                      { l: 'Symbol', k: 'symbol' },
+                      { l: 'Price', k: 'current_price' },
+                      { l: 'Score', k: 'calculated_metrics.score' },
+                      { l: 'Sentiment', k: 'sentiment_score' },
+                      { l: 'P/FCF', k: 'calculated_metrics.p_fcf' },
+                      { l: 'PEG', k: 'peg_ratio' },
+                      { l: 'ROE', k: 'return_on_equity' },
+                      { l: 'Debt/Eq', k: 'debt_to_equity' },
+                      { l: 'HV', k: 'historical_volatility' },
+                      { l: 'IV (S)', k: 'iv_short' },
+                      { l: 'IV Rank', k: 'iv_rank' },
+                      { l: 'IV Ratio', k: 'iv_term_structure_ratio' },
+                      { l: 'Insider', k: 'insider_net_shares' },
+                    ].map(({ l, k }) => (
+                      <th
+                        key={k}
+                        onClick={() => handleSort(k)}
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                      >
+                        {l} {sortConfig.key === k && (sortConfig.direction === 'asc' ? '▲' : '▼')}
+                      </th>
+                    ))}
                     <th>Action</th>
-                    <th>Target (L, M, H)</th>
+                    <th
+                      onClick={() => handleSort('target_mean')}
+                      style={{ cursor: 'pointer', userSelect: 'none' }}
+                    >
+                      Target (L, M, H) {sortConfig.key === 'target_mean' && (sortConfig.direction === 'asc' ? '▲' : '▼')}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {results.map((r) => {
+                  {sortedResults.map((r) => {
                     const score = r.calculated_metrics?.score || 0
                     const formatPercent = (val) => val ? (val * 100).toFixed(1) + '%' : 'N/A'
                     const formatInsider = (val) => {

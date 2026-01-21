@@ -42,6 +42,10 @@ class ScreenResult(Base):
     market_cap = Column(Float, nullable=True)
     iv30 = Column(Float, nullable=True)
     
+    # ML Prediction
+    ml_prediction = Column(String, nullable=True)
+    ml_confidence = Column(Float, nullable=True)
+    
     # All other details stored here
     raw_data = Column(JSON, nullable=True)
 

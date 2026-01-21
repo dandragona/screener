@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import App from './App'
 
@@ -14,94 +14,24 @@ describe('App', () => {
         // Mock successful screen response
         fetch.mockResolvedValueOnce({
             ok: true,
-            json: async () => [],
+            json: async () => [
+                { symbol: 'AAPL', calculated_metrics: { score: 90 } },
+                { symbol: 'GOOG', calculated_metrics: { score: 80 } }
+            ],
         })
 
         render(<App />)
-        expect(screen.getByText('AVG LEAPs')).toBeInTheDocument()
+        // Expect header
+        expect(screen.getByText('Arc Screener')).toBeInTheDocument()
 
         await waitFor(() => {
             expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/screen'))
-        })
-    })
-
-    it('uses cached data if valid', async () => {
-        // Setup valid cache
-        const mockData = [{ symbol: 'AAPL', current_price: 150 }]
-        const validCache = {
-            data: mockData,
-            timestamp: Date.now()
-        }
-        localStorage.setItem('screenerResults', JSON.stringify(validCache))
-
-        render(<App />)
-
-        // Should receive data from cache without fetch
-        await waitFor(() => {
             expect(screen.getByText('AAPL')).toBeInTheDocument()
-        })
-        expect(fetch).not.toHaveBeenCalled()
-    })
-
-    it('fetches new data if cache is expired', async () => {
-        // Setup expired cache (> 24h old)
-        const mockData = [{ symbol: 'AAPL', current_price: 150 }]
-        const expiredCache = {
-            data: mockData,
-            timestamp: Date.now() - (25 * 60 * 60 * 1000) // 25 hours ago
-        }
-        localStorage.setItem('screenerResults', JSON.stringify(expiredCache))
-
-        fetch.mockResolvedValueOnce({
-            ok: true,
-            json: async () => [{ symbol: 'GOOG', current_price: 200 }],
-        })
-
-        render(<App />)
-
-        // Should verify fresh data loaded
-        await waitFor(() => {
             expect(screen.getByText('GOOG')).toBeInTheDocument()
         })
-        expect(fetch).toHaveBeenCalled()
-    })
-
-    it('refreshes data when refresh button is clicked', async () => {
-        // Setup valid cache
-        const mockData = [{ symbol: 'AAPL', current_price: 150 }]
-        const validCache = {
-            data: mockData,
-            timestamp: Date.now()
-        }
-        localStorage.setItem('screenerResults', JSON.stringify(validCache))
-
-        fetch.mockResolvedValueOnce({
-            ok: true,
-            json: async () => [{ symbol: 'MSFT', current_price: 300 }],
-        })
-
-        render(<App />)
-
-        // Confirm initial load from cache
-        await waitFor(() => {
-            expect(screen.getByText('AAPL')).toBeInTheDocument()
-        })
-        expect(fetch).not.toHaveBeenCalled()
-
-        // Click refresh
-        const refreshButton = screen.getByText('Refresh Data')
-        fireEvent.click(refreshButton)
-
-        // Should fetch new data
-        await waitFor(() => {
-            expect(screen.getByText('MSFT')).toBeInTheDocument()
-        })
-        expect(fetch).toHaveBeenCalled()
     })
 
     it('handles analysis caching', async () => {
-        // Mock initial screen load with no cache
-        localStorage.clear()
         const mockTicker = {
             symbol: 'AAPL',
             current_price: 150,
@@ -120,7 +50,7 @@ describe('App', () => {
         })
 
         // 1. Click Analyze -> API call
-        const analyzeButton = screen.getAllByText('Analyze')[0]
+        const analyzeButton = screen.getByText('Analyze')
         const mockAnalysis = { symbol: 'AAPL', analysis: 'Good stock' }
 
         // Mock next fetch for analyze
@@ -141,7 +71,7 @@ describe('App', () => {
         // Close modal
         fireEvent.click(screen.getByText('×'))
 
-        // 2. Click Analyze again -> No API call
+        // 2. Click Analyze again -> No API call (should use cache)
         fireEvent.click(analyzeButton)
 
         await waitFor(() => {
@@ -150,5 +80,73 @@ describe('App', () => {
 
         // Still only 2 calls
         expect(fetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('sorts data when column headers are clicked', async () => {
+        // Mock data
+        const mockData = [
+            { symbol: 'AAA', current_price: 100, calculated_metrics: { score: 50 } },
+            { symbol: 'BBB', current_price: 200, calculated_metrics: { score: 80 } },
+            { symbol: 'CCC', current_price: 50, calculated_metrics: { score: 20 } }
+        ]
+
+        fetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => mockData,
+        })
+
+        render(<App />)
+
+        await waitFor(() => {
+            expect(screen.getByText('AAA')).toBeInTheDocument()
+        })
+
+        // Helper to get rows
+        const getRows = () => screen.getAllByRole('row').slice(1) // skip header
+
+        // Initial sort is Score desc
+        // BBB (80), AAA (50), CCC (20)
+        let rows = getRows()
+        expect(within(rows[0]).getByText('BBB')).toBeInTheDocument()
+        expect(within(rows[1]).getByText('AAA')).toBeInTheDocument()
+        expect(within(rows[2]).getByText('CCC')).toBeInTheDocument()
+
+        // 1. Sort by Price (click Header)
+        const priceHeader = screen.getByText(/Price/)
+        fireEvent.click(priceHeader)
+
+        // Should be Price Desc (first click)
+        // BBB (200), AAA (100), CCC (50)
+        rows = getRows()
+        expect(within(rows[0]).getByText('BBB')).toBeInTheDocument()
+        expect(within(rows[1]).getByText('AAA')).toBeInTheDocument()
+        expect(within(rows[2]).getByText('CCC')).toBeInTheDocument()
+
+        // 2. Sort by Price again (asc)
+        fireEvent.click(priceHeader)
+        // Should be Price Asc
+        // CCC (50), AAA (100), BBB (200)
+        rows = getRows()
+        expect(within(rows[0]).getByText('CCC')).toBeInTheDocument()
+        expect(within(rows[1]).getByText('AAA')).toBeInTheDocument()
+        expect(within(rows[2]).getByText('BBB')).toBeInTheDocument()
+
+        // 3. Sort by Symbol
+        const symbolHeader = screen.getByText(/Symbol/)
+        fireEvent.click(symbolHeader)
+        // Symbol Desc
+        // CCC, BBB, AAA
+        rows = getRows()
+        expect(within(rows[0]).getByText('CCC')).toBeInTheDocument()
+        expect(within(rows[1]).getByText('BBB')).toBeInTheDocument()
+        expect(within(rows[2]).getByText('AAA')).toBeInTheDocument()
+
+        // 4. Sort by Symbol Asc
+        fireEvent.click(symbolHeader)
+        // AAA, BBB, CCC
+        rows = getRows()
+        expect(within(rows[0]).getByText('AAA')).toBeInTheDocument()
+        expect(within(rows[1]).getByText('BBB')).toBeInTheDocument()
+        expect(within(rows[2]).getByText('CCC')).toBeInTheDocument()
     })
 })
