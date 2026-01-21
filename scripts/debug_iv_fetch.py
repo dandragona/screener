@@ -1,36 +1,23 @@
+from backend.screener import Screener
 import sys
 import os
 
-# Fix path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 
-from screener import Screener
-from data_provider import HybridProvider, PolygonProvider
-import config
-import data_provider
+from backend.data_provider import HybridProvider, PolygonProvider
 import json
 
 def debug_fetch():
-    print(f"DEBUG: ENABLE_IV_RANK = {config.ENABLE_IV_RANK}")
-    
-    # Enable debug prints in PolygonProvider by monkeypatching (hacky but quick)
-    # Actually I removed them. I'll rely on script output.
-    
     print("Initializing...")
     hp = HybridProvider()
     s = Screener(hp)
     
-    ticker = "AAPL" 
+    ticker = "AAPL" # Use a liquid ticker
     print(f"Fetching full history for {ticker}...")
-    
-    # Measure time?
-    import time
-    start = time.time()
     
     # Force full mode
     data = s.process_ticker(ticker, fetch_mode="full")
-    end = time.time()
-    print(f"Fetch took {end - start:.2f} seconds")
     
     if not data:
         print("No data returned!")
@@ -42,6 +29,9 @@ def debug_fetch():
         print("Sample:", iv_hist[0])
     else:
         print("FAILURE: No iv_history returned.")
+        print("Keys present:", data.keys())
+        if "iv30_current" in data:
+            print("iv30_current:", data["iv30_current"])
 
 if __name__ == "__main__":
     debug_fetch()

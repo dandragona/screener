@@ -1,6 +1,11 @@
-from data_provider import HybridProvider, PolygonProvider
-from config import POLYGON_API_KEY
 import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
+
+from backend.data_provider import HybridProvider, PolygonProvider
+from config import POLYGON_API_KEY
 
 def verify_polygon():
     print(f"Checking API Key... {POLYGON_API_KEY[:4]}***")
